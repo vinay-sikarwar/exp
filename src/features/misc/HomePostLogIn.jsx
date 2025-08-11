@@ -82,10 +82,12 @@ function HomePostLogIn() {
           {randomNotes.map((note, index) => (
             <div key={`random-${index}`} className="flex-shrink-0 w-64">
               <ProductCard
+                id={note.id}
                 title={note.title}
                 subject={note.subject || note.branch}
                 numRatings={note.ratings?.length || 0}
                 price={note.price || 5}
+                driveLink={note.driveLink}
                 btn="Add to Cart"
               />
             </div>
@@ -100,6 +102,7 @@ function HomePostLogIn() {
         </p>
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
           <ProductCard
+            id="one-year-kit"
             title="One Year Kit"
             subject="All Subjects"
             numRatings={403}
@@ -107,6 +110,7 @@ function HomePostLogIn() {
             btn="Add to Cart"
           />
           <ProductCard
+            id="one-semester-kit"
             title="One Semester Kit"
             subject="All Subjects"
             numRatings={403}
