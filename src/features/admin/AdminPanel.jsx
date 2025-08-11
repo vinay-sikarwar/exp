@@ -7,12 +7,15 @@ import {
   getUsersWithPendingNotes,
   approveNoteForUser,
   denyNoteForUser,
+  getAllPurchases,
+  approvePurchase,
+  denyPurchase,
 } from "../../services/adminService";
 import { getApprovedNotesDetails } from "../../services/notesService";
 import Navbar from "../../Components/Navbar"; // Assuming Navbar component
 
 function AdminPanel() {
-  const [view, setView] = useState("notes");
+  const [view, setView] = useState("purchases");
 
   const [notes, setNotes] = useState([]);
   const [notesLoading, setNotesLoading] = useState(true);
@@ -30,11 +33,21 @@ function AdminPanel() {
   // New state for inline drive link editing
   const [driveLinkEdits, setDriveLinkEdits] = useState({});
 
+  // Purchase requests state
+  const [purchases, setPurchases] = useState([]);
+  const [purchasesLoading, setPurchasesLoading] = useState(true);
+  const [purchaseActionLoading, setPurchaseActionLoading] = useState(null);
   const [pendingUsers, setPendingUsers] = useState([]);
   const [pendingUsersLoading, setPendingUsersLoading] = useState(true);
   const [pendingActionLoading, setPendingActionLoading] = useState(null);
   const [pendingNotesDetails, setPendingNotesDetails] = useState({});
 
+  const fetchPurchases = async () => {
+    setPurchasesLoading(true);
+    const { purchases: allPurchases } = await getAllPurchases();
+    setPurchases(allPurchases || []);
+    setPurchasesLoading(false);
+  };
   const fetchNotes = async () => {
     setNotesLoading(true);
     const { notes: allNotes } = await getAllNotesAdmin();
@@ -65,13 +78,34 @@ function AdminPanel() {
   };
 
   useEffect(() => {
-    if (view === "notes") {
+    if (view === "purchases") {
+      fetchPurchases();
+    } else if (view === "notes") {
       fetchNotes();
     } else {
       fetchPendingUsers();
     }
   }, [view]);
 
+  // Purchase handlers
+  const handleApprovePurchase = async (purchaseId) => {
+    setPurchaseActionLoading(purchaseId);
+    const { error } = await approvePurchase(purchaseId);
+    if (!error) {
+      await fetchPurchases();
+    }
+    setPurchaseActionLoading(null);
+  };
+
+  const handleDenyPurchase = async (purchaseId) => {
+    const reason = prompt("Enter denial reason (optional):");
+    setPurchaseActionLoading(purchaseId);
+    const { error } = await denyPurchase(purchaseId, reason);
+    if (!error) {
+      await fetchPurchases();
+    }
+    setPurchaseActionLoading(null);
+  };
   // Notes handlers
   const handleEditClick = (note) => {
     setEditingNote(note);
@@ -158,6 +192,9 @@ function AdminPanel() {
     const badges = {
       pending: "bg-yellow-100 text-yellow-800 px-2 py-1 rounded",
       approved: "bg-green-100 text-green-800 px-2 py-1 rounded",
+      verified: "bg-green-100 text-green-800 px-2 py-1 rounded",
+      denied: "bg-red-100 text-red-800 px-2 py-1 rounded",
+      rejected: "bg-red-100 text-red-800 px-2 py-1 rounded",
       "access denied": "bg-red-100 text-red-800 px-2 py-1 rounded",
     };
     return badges[status] || "bg-gray-100 text-gray-800 px-2 py-1 rounded";
@@ -181,11 +218,110 @@ function AdminPanel() {
             className="border border-[#0A1F44] rounded px-4 py-2 text-lg text-[#0A1F44] font-semibold shadow-sm focus:outline-none focus:ring-2 focus:ring-[#16335B]"
             aria-label="Select admin panel view"
           >
+            <option value="purchases">Payment Requests</option>
             <option value="notes">Notes Upload Requests</option>
             <option value="access">User Purchase Approvals</option>
           </select>
         </div>
 
+        {/* Payment Requests */}
+        {view === "purchases" && (
+          <section className="bg-white rounded shadow p-6">
+            <h2 className="text-3xl font-bold mb-6 text-[#0A1F44]">
+              Payment Requests
+            </h2>
+
+            {purchasesLoading ? (
+              <p className="text-center text-gray-600">Loading payment requests...</p>
+            ) : purchases.length === 0 ? (
+              <p className="text-center text-gray-600">
+                No payment requests yet.
+              </p>
+            ) : (
+              <table className={tableClassName}>
+                <thead>
+                  <tr>
+                    <th className={thClassName}>User</th>
+                    <th className={thClassName}>Payment ID</th>
+                    <th className={thClassName}>Amount</th>
+                    <th className={thClassName}>Items</th>
+                    <th className={thClassName}>Status</th>
+                    <th className={thClassName}>Date</th>
+                    <th className={thClassName}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {purchases.map((purchase) => (
+                    <tr key={purchase.id} className="hover:bg-[#e1e7f0] transition">
+                      <td className={tdClassName}>
+                        <div>
+                          <p className="font-medium">{purchase.userName || purchase.userEmail}</p>
+                          <p className="text-xs text-gray-600">{purchase.userEmail}</p>
+                        </div>
+                      </td>
+                      <td className={tdClassName}>
+                        <span className="font-mono bg-gray-100 px-2 py-1 rounded text-sm">
+                          {purchase.paymentId}
+                        </span>
+                      </td>
+                      <td className={tdClassName}>
+                        <span className="font-semibold text-green-600">
+                          ₹{purchase.totalAmount}
+                        </span>
+                      </td>
+                      <td className={tdClassName}>
+                        <div className="max-w-xs">
+                          {purchase.items?.slice(0, 2).map((item, index) => (
+                            <p key={index} className="text-sm truncate">
+                              {item.title} (₹{item.price})
+                            </p>
+                          ))}
+                          {purchase.items?.length > 2 && (
+                            <p className="text-xs text-gray-500">
+                              +{purchase.items.length - 2} more items
+                            </p>
+                          )}
+                        </div>
+                      </td>
+                      <td className={tdClassName}>
+                        <span className={getStatusBadge(purchase.status)}>
+                          {purchase.status}
+                        </span>
+                      </td>
+                      <td className={tdClassName}>
+                        {purchase.createdAt?.toDate
+                          ? new Date(purchase.createdAt.toDate()).toLocaleDateString()
+                          : "-"}
+                      </td>
+                      <td className={`${tdClassName} space-x-3`}>
+                        {purchase.status === "pending" && (
+                          <>
+                            <button
+                              onClick={() => handleApprovePurchase(purchase.id)}
+                              disabled={purchaseActionLoading === purchase.id}
+                              className="text-green-700 hover:underline disabled:opacity-50"
+                            >
+                              {purchaseActionLoading === purchase.id
+                                ? "Processing..."
+                                : "Approve"}
+                            </button>
+                            <button
+                              onClick={() => handleDenyPurchase(purchase.id)}
+                              disabled={purchaseActionLoading === purchase.id}
+                              className="text-red-700 hover:underline disabled:opacity-50"
+                            >
+                              Deny
+                            </button>
+                          </>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </section>
+        )}
         {/* Notes Upload Requests */}
         {view === "notes" && (
           <section className="bg-white rounded shadow p-6">
@@ -255,8 +391,6 @@ function AdminPanel() {
                     <th className={thClassName}>Subject</th>
                     <th className={thClassName}>Branch</th>
                     <th className={thClassName}>Year / Semester</th>
-                    <th className={thClassName}>Admin Drive Link</th>{" "}
-                    {/* NEW */}
                     <th className={thClassName}>Status</th>
                     <th className={thClassName}>Submitted</th>
                     <th className={thClassName}>Actions</th>

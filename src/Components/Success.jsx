@@ -1,15 +1,17 @@
 import React, { useEffect } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
+import { useCart } from "../contexts/CartContext";
 import { addToPendingNotes } from "../services/notesService";
 
 function Success() {
   const location = useLocation();
   const navigate = useNavigate();
-  const { purchasedItems, paymentId, userEmail } = location.state || {
+  const { purchasedItems, paymentId, userEmail, purchaseId } = location.state || {
     purchasedItems: [],
   };
   const { user } = useAuth();
+  const { cartItems, removeFromCart } = useCart();
 
   useEffect(() => {
     const addNotesToPending = async () => {
@@ -24,6 +26,11 @@ function Success() {
             console.error("Failed to add notes to pending:", error);
           } else {
             console.log("Notes added to pending successfully");
+            
+            // Clear the cart after successful payment processing
+            purchasedItems.forEach((item) => {
+              removeFromCart(item.title);
+            });
           }
         }
       }
@@ -53,6 +60,11 @@ function Success() {
           </span>{" "}
           is under verification.
         </p>
+        {purchaseId && (
+          <p className="text-sm text-gray-600">
+            Order ID: <span className="font-mono">{purchaseId}</span>
+          </p>
+        )}
         <p>
           Please wait up to 6 hours for verification and access to your notes.
         </p>
@@ -69,10 +81,10 @@ function Success() {
         </div>
 
         <button
-          onClick={() => navigate("/study")}
+          onClick={() => navigate("/")}
           className="mt-4 bg-yellow-600 hover:bg-yellow-700 text-white px-6 py-3 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:ring-offset-2 transition duration-200"
         >
-          Go to Study
+          Go to Home
         </button>
       </div>
     </div>

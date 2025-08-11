@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import Navbar from "./Navbar";
 import QRCodeImage from "../assets/qr.svg";
 import { useAuth } from "../contexts/AuthContext";
+import { useCart } from "../contexts/CartContext";
 import { db } from "../config/firebase";
 import { collection, addDoc, serverTimestamp } from "firebase/firestore";
 
@@ -11,6 +12,7 @@ export default function Payment() {
   const navigate = useNavigate();
   const { cartItems } = location.state || { cartItems: [] };
   const { user } = useAuth();
+  const { cartItems: currentCartItems } = useCart();
 
   const [paymentId, setPaymentId] = useState("");
   const [error, setError] = useState("");
@@ -32,29 +34,36 @@ export default function Payment() {
     setLoading(true);
 
     try {
-      // Save to Firestore purchases collection
-      const docRef = await addDoc(collection(db, "purchases"), {
+      // Calculate total amount
+      const totalAmount = cartItems.reduce(
+        (total, item) => total + item.price * (item.quantity || 1),
+        0
+      );
+
+      // Save to Firestore purchases collection with all required fields
+      const purchaseData = {
         userId: user.uid,
         userEmail: user.email,
+        userName: user.displayName || user.email,
         paymentId: trimmedPaymentId,
-        paymentStatus: "pending", // for admin clarity
+        totalAmount: totalAmount,
         items: cartItems,
-        status: "pending", // existing status field
+        status: "pending",
+        paymentStatus: "pending",
         createdAt: serverTimestamp(),
-      });
+      };
+
+      const docRef = await addDoc(collection(db, "purchases"), purchaseData);
 
       console.log("✅ Payment saved to Firestore with ID:", docRef.id);
-      console.log("📄 Payment data:", {
-        userId: user.uid,
-        paymentId: trimmedPaymentId,
-        items: cartItems,
-      });
+      console.log("📄 Payment data:", purchaseData);
 
       navigate("/success", {
         state: {
           purchasedItems: cartItems,
           paymentId: trimmedPaymentId,
           userEmail: user.email,
+          purchaseId: docRef.id,
         },
       });
     } catch (err) {
@@ -97,6 +106,8 @@ export default function Payment() {
                 Review your purchase and enter your Payment ID to confirm.
               </p>
 
+              <div className="bg-gray-50 p-4 rounded-lg">
+                <h3 className="font-semibold text-gray-800 mb-2">Order Summary:</h3>
               <ul className="list-disc list-inside text-gray-700 max-h-48 overflow-y-auto space-y-2 px-4 max-w-md mx-auto lg:mx-0">
                 {cartItems.map((item) => (
                   <li key={item.title} className="text-base font-medium">
@@ -104,13 +115,19 @@ export default function Payment() {
                   </li>
                 ))}
               </ul>
+                <div className="mt-4 pt-2 border-t border-gray-200">
+                  <p className="text-lg font-bold text-gray-800">
+                    Total: ₹{cartItems.reduce((total, item) => total + item.price * (item.quantity || 1), 0)}
+                  </p>
+                </div>
+              </div>
 
               <div className="max-w-md mx-auto lg:mx-0">
                 <label
                   htmlFor="paymentId"
                   className="block text-sm font-medium text-gray-700 mb-1"
                 >
-                  Payment ID
+                  Payment ID *
                 </label>
                 <input
                   id="paymentId"
@@ -119,7 +136,11 @@ export default function Payment() {
                   onChange={(e) => setPaymentId(e.target.value)}
                   placeholder="Enter your payment transaction ID"
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                  required
                 />
+                <p className="mt-1 text-xs text-gray-500">
+                  Enter the transaction ID from your payment app (UPI/Bank)
+                </p>
                 {error && (
                   <p className="mt-1 text-red-600 text-sm font-medium">
                     {error}

@@ -22,6 +22,59 @@ export const isAdmin = async (userEmail) => {
   return await checkAdminStatus(userEmail);
 };
 
+// Get all purchase requests for admin approval
+export const getAllPurchases = async () => {
+  try {
+    const purchasesRef = collection(db, 'purchases');
+    const q = query(purchasesRef, orderBy('createdAt', 'desc'));
+    const querySnapshot = await getDocs(q);
+    
+    const purchases = [];
+    querySnapshot.forEach((doc) => {
+      purchases.push({ id: doc.id, ...doc.data() });
+    });
+    
+    return { purchases, error: null };
+  } catch (error) {
+    console.error('Error getting purchases:', error);
+    return { purchases: [], error: error.message };
+  }
+};
+
+// Approve a purchase
+export const approvePurchase = async (purchaseId) => {
+  try {
+    const purchaseRef = doc(db, 'purchases', purchaseId);
+    await updateDoc(purchaseRef, {
+      status: 'approved',
+      paymentStatus: 'verified',
+      approvedAt: new Date(),
+      updatedAt: new Date()
+    });
+    return { error: null };
+  } catch (error) {
+    console.error('Error approving purchase:', error);
+    return { error: error.message };
+  }
+};
+
+// Deny a purchase
+export const denyPurchase = async (purchaseId, reason = '') => {
+  try {
+    const purchaseRef = doc(db, 'purchases', purchaseId);
+    await updateDoc(purchaseRef, {
+      status: 'denied',
+      paymentStatus: 'rejected',
+      denialReason: reason,
+      deniedAt: new Date(),
+      updatedAt: new Date()
+    });
+    return { error: null };
+  } catch (error) {
+    console.error('Error denying purchase:', error);
+    return { error: error.message };
+  }
+};
 // Get all pending notes for approval
 export const getPendingNotes = async () => {
   try {
