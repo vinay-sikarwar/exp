@@ -2,7 +2,7 @@ import React, { useRef, useState, useEffect } from "react";
 import { useAuth } from "../../contexts/AuthContext.jsx";
 import ProductCard from "../../Components/ProductCard.jsx";
 import UserProfileEdit from "./UserProfileEdit.jsx";
-import { getUserAccessedNotes } from "../../services/notesService.js";
+import { getUserAccessedNotes, listenToUserNotes } from "../../services/notesService.js";
 
 function Profile() {
   const { user, userDoc } = useAuth();
@@ -10,6 +10,7 @@ function Profile() {
   const [profilePhoto, setProfilePhoto] = useState("");
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [accessedNotes, setAccessedNotes] = useState([]);
+  const [earnings, setEarnings] = useState(0);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -19,15 +20,22 @@ function Profile() {
   }, [user, userDoc]);
 
   useEffect(() => {
-    const fetchAccessedNotes = async () => {
-      if (user) {
-        const { notes } = await getUserAccessedNotes(user.uid);
-        setAccessedNotes(notes);
-      }
+    if (!user) {
       setLoading(false);
-    };
+      return;
+    }
 
-    fetchAccessedNotes();
+    // Listen to user's notes and earnings in real-time
+    const unsubscribe = listenToUserNotes(user.uid, async (userNotes) => {
+      setEarnings(userNotes.earnings);
+      
+      // Fetch accessed notes details
+      const { notes } = await getUserAccessedNotes(user.uid);
+      setAccessedNotes(notes);
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
   }, [user]);
 
   const handleFileChange = (e) => {
@@ -69,27 +77,42 @@ function Profile() {
         </div>
       </div>
 
+      {/* Earnings Section */}
+      <div className="max-w-6xl mx-auto mt-6 px-4">
+        <div className="bg-green-100 rounded-xl px-6 py-4 shadow-inner">
+          <h3 className="text-xl font-semibold text-gray-800 mb-2">
+            Total Earnings
+          </h3>
+          <p className="text-2xl font-bold text-green-600">₹{earnings}</p>
+          <p className="text-sm text-gray-600 mt-1">
+            Earned from uploaded notes that have been purchased
+          </p>
+        </div>
+      </div>
+
       <div className="max-w-6xl mx-auto mt-10 px-4">
         <div className="bg-indigo-100 rounded-xl px-6 py-8 shadow-inner">
           <h3 className="mb-6 text-2xl font-semibold text-gray-800">
-            Resources Accessed
+            Accessed Notes
           </h3>
           {accessedNotes.length > 0 ? (
             <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
               {accessedNotes.map((note, index) => (
                 <ProductCard
                   key={`accessed-${index}`}
+                  id={note.id}
                   title={note.title}
                   subject={note.subject || note.branch}
                   numRatings={note.ratings?.length || 0}
                   price={note.price}
+                  driveLink={note.driveLink}
                   btn="Start Reading"
                   isBought={true}
                 />
               ))}
             </div>
           ) : (
-            <p className="text-gray-600 text-sm">No accessed notes yet.</p>
+            <p className="text-gray-600 text-sm">No approved notes yet.</p>
           )}
         </div>
       </div>

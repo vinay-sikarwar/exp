@@ -12,6 +12,8 @@ import {
   orderBy,
   arrayUnion,
   arrayRemove,
+  onSnapshot,
+  increment,
 } from "firebase/firestore";
 import { db } from "../config/firebase";
 
@@ -135,99 +137,115 @@ export const updateUserEligibility = async (userId, isEligible) => {
     return { error: error.message };
   }
 };
-export const getUserAccessedNotes = async (userId) => {
-  try {
-    const notesRef = collection(db, "notes");
-    const q = query(
-      notesRef,
-      where("accessedBy", "array-contains", userId),
-      orderBy("createdAt", "desc")
-    );
-    const querySnapshot = await getDocs(q);
 
-    const notes = [];
-    querySnapshot.forEach((doc) => {
-      notes.push({ id: doc.id, ...doc.data() });
-    });
-
-    return { notes, error: null };
-  } catch (error) {
-    console.error("Error getting accessed notes:", error);
-    return { notes: [], error: error.message };
-  }
-};
-
-export const moveToPendingNotes = async (userId, notes) => {
+// Add purchased notes to user's pendingNotes array
+export const addToPendingNotes = async (userId, notes) => {
   try {
     const userRef = doc(db, "users", userId);
     await updateDoc(userRef, {
       pendingNotes: arrayUnion(...notes),
+      updatedAt: new Date(),
     });
     return { error: null };
   } catch (error) {
-    console.error("Error adding to pendingNotes:", error);
+    console.error("Error adding to pending notes:", error);
     return { error: error.message };
   }
 };
 
-// Admin approves a note for a user
-export const approveNoteForUser = async (userId, note) => {
+// Get user's approved and pending notes
+export const getUserNotes = async (userId) => {
   try {
     const userRef = doc(db, "users", userId);
-    const uploaderRef = doc(db, "users", note.uploadedBy);
-
-    await updateDoc(userRef, {
-      pendingNotes: arrayRemove(note),
-      approvedNotes: arrayUnion(note),
-    });
-
-    await updateDoc(uploaderRef, {
-      earnings: increment(5),
-    });
-
-    return { error: null };
+    const userSnap = await getDoc(userRef);
+    
+    if (userSnap.exists()) {
+      const userData = userSnap.data();
+      return {
+        pendingNotes: userData.pendingNotes || [],
+        approvedNotes: userData.approvedNotes || [],
+        earnings: userData.earnings || 0,
+        error: null
+      };
+    }
+    
+    return {
+      pendingNotes: [],
+      approvedNotes: [],
+      earnings: 0,
+      error: null
+    };
   } catch (error) {
-    console.error("Error approving note:", error);
-    return { error: error.message };
+    console.error("Error getting user notes:", error);
+    return {
+      pendingNotes: [],
+      approvedNotes: [],
+      earnings: 0,
+      error: error.message
+    };
   }
 };
 
-// ============================
-// REALTIME LISTENERS
-// ============================
-
-// Listen to user's approved & pending notes
+// Listen to user's notes in real-time
 export const listenToUserNotes = (userId, callback) => {
   const userRef = doc(db, "users", userId);
   return onSnapshot(userRef, (snapshot) => {
     if (snapshot.exists()) {
       const data = snapshot.data();
       callback({
-        approvedNotes: data.approvedNotes || [],
         pendingNotes: data.pendingNotes || [],
+        approvedNotes: data.approvedNotes || [],
+        earnings: data.earnings || 0,
+      });
+    } else {
+      callback({
+        pendingNotes: [],
+        approvedNotes: [],
+        earnings: 0,
       });
     }
   });
 };
 
-// ============================
-// PROFILE
-// ============================
-
-export const getUserProfileData = async (userId) => {
+// Get approved notes details for profile page
+export const getApprovedNotesDetails = async (noteIds) => {
   try {
-    const userRef = doc(db, "users", userId);
-    const snap = await getDoc(userRef);
-    if (!snap.exists()) return { error: "User not found" };
+    if (!noteIds || noteIds.length === 0) {
+      return { notes: [], error: null };
+    }
 
-    const data = snap.data();
-    return {
-      approvedNotes: data.approvedNotes || [],
-      earnings: data.earnings || 0,
-      error: null,
-    };
+    const notes = [];
+    for (const noteId of noteIds) {
+      const noteRef = doc(db, "notes", noteId);
+      const noteSnap = await getDoc(noteRef);
+      if (noteSnap.exists()) {
+        notes.push({ id: noteSnap.id, ...noteSnap.data() });
+      }
+    }
+
+    return { notes, error: null };
   } catch (error) {
-    console.error("Error getting profile data:", error);
-    return { approvedNotes: [], earnings: 0, error: error.message };
+    console.error("Error getting approved notes details:", error);
+    return { error: error.message };
+  }
+};
+
+// Check if note is in user's pending or approved notes
+export const checkNoteStatus = (noteId, pendingNotes, approvedNotes) => {
+  if (approvedNotes.includes(noteId)) return 'approved';
+  if (pendingNotes.includes(noteId)) return 'pending';
+  return 'none';
+};
+
+export const getUserAccessedNotes = async (userId) => {
+  try {
+    const { approvedNotes, error } = await getUserNotes(userId);
+    if (error) return { notes: [], error };
+
+    const { notes } = await getApprovedNotesDetails(approvedNotes);
+    return { notes, error: null };
+  } catch (error) {
+    console.error("Error getting accessed notes:", error);
+    return { notes: [], error: error.message };
   }
 };
