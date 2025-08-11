@@ -1,7 +1,7 @@
 import React, { useEffect } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
-import { createAccessRequest } from "../services/adminService";
+import { addToPendingNotes } from "../services/notesService";
 
 function Success() {
   const location = useLocation();
@@ -12,30 +12,24 @@ function Success() {
   const { user } = useAuth();
 
   useEffect(() => {
-    const submitAccessRequest = async () => {
+    const addNotesToPending = async () => {
       if (purchasedItems.length && user?.email) {
-        const requestedNotes = purchasedItems.map((item) => ({
-          title: item.title,
-          price: item.price,
-          quantity: item.quantity || 1,
-        }));
+        // Extract note IDs from purchased items
+        const noteIds = purchasedItems.map(item => item.id).filter(Boolean);
 
-        const { error } = await createAccessRequest({
-          userId: user.uid,
-          userEmail: user.email,
-          paymentId,
-          requestedNotes,
-        });
+        if (noteIds.length > 0) {
+          const { error } = await addToPendingNotes(user.uid, noteIds);
 
-        if (error) {
-          console.error("Failed to submit access request:", error);
-        } else {
-          console.log("Access request submitted successfully");
+          if (error) {
+            console.error("Failed to add notes to pending:", error);
+          } else {
+            console.log("Notes added to pending successfully");
+          }
         }
       }
     };
 
-    submitAccessRequest();
+    addNotesToPending();
   }, [purchasedItems, paymentId, user]);
 
   if (purchasedItems.length === 0) {

@@ -158,7 +158,10 @@ const createUserDocument = async (user, additionalData = {}) => {
         photoURL: photoURL || "",
         createdAt,
         isEligible: false,
-        notesUploaded: [],
+        pendingNotes: [],
+        approvedNotes: [],
+        uploadedNotes: [],
+        earnings: 0,
         ...additionalData,
       });
     } catch (error) {

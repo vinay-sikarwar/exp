@@ -9,7 +9,10 @@ import {
   query, 
   where, 
   orderBy,
-  addDoc
+  addDoc,
+  arrayRemove,
+  arrayUnion,
+  increment
 } from "firebase/firestore";
 import { db } from "../config/firebase";
 import { checkAdminStatus } from "./authService";
@@ -151,83 +154,83 @@ export const denyAccessRequest = async (requestId, reason = "") => {
   }
 };
 
-// Add a new access request (when user submits payment)
-export const createAccessRequest = async ({
-  userId,
-  userEmail,
-  requestedNotes,
-}) => {
+// Get all users with pending notes for admin approval
+export const getUsersWithPendingNotes = async () => {
   try {
-    const accessReqRef = collection(db, "accessRequests");
-    const docRef = await addDoc(accessReqRef, {
-      userId,
-      userEmail,
-      requestedNotes,
-      status: "pending",
-      createdAt: new Date(),
-      updatedAt: new Date(),
+    const usersRef = collection(db, "users");
+    const q = query(usersRef, where("pendingNotes", "!=", []));
+    const querySnapshot = await getDocs(q);
+    
+    const users = [];
+    querySnapshot.forEach((doc) => {
+      const userData = doc.data();
+      if (userData.pendingNotes && userData.pendingNotes.length > 0) {
+        users.push({ 
+          id: doc.id, 
+          email: userData.email,
+          displayName: userData.displayName,
+          pendingNotes: userData.pendingNotes,
+          ...userData 
+        });
+      }
     });
-    return { id: docRef.id, error: null };
+    
+    return { users, error: null };
   } catch (error) {
-    console.error("Error creating access request:", error);
-    return { id: null, error: error.message };
+    console.error("Error getting users with pending notes:", error);
+    return { users: [], error: error.message };
   }
 };
-// Approve note for a specific user and reward uploader
+// Approve a note for a specific user
 export const approveNoteForUser = async (userId, noteId) => {
   try {
     const userRef = doc(db, "users", userId);
     const noteRef = doc(db, "notes", noteId);
 
-    // 1. Get current user data
-    const userSnap = await getDoc(userRef);
-    if (!userSnap.exists()) {
-      throw new Error(`User ${userId} not found`);
-    }
-    const userData = userSnap.data();
-
-    // 2. Get note data
+    // Get note data to find uploader
     const noteSnap = await getDoc(noteRef);
     if (!noteSnap.exists()) {
       throw new Error(`Note ${noteId} not found`);
     }
     const noteData = noteSnap.data();
 
-    // 3. Update user's pending/approved notes lists
-    const updatedPending = (userData.pendingNotes || []).filter(id => id !== noteId);
-    const updatedApproved = [...(userData.approvedNotes || []), noteId];
-
+    // Move note from pending to approved for user
     await updateDoc(userRef, {
-      pendingNotes: updatedPending,
-      approvedNotes: updatedApproved,
+      pendingNotes: arrayRemove(noteId),
+      approvedNotes: arrayUnion(noteId),
       updatedAt: new Date()
     });
 
-    // 4. Reward uploader
+    // Reward uploader with 5 earnings
     if (noteData.uploadedBy) {
       const uploaderRef = doc(db, "users", noteData.uploadedBy);
-      const uploaderSnap = await getDoc(uploaderRef);
-      if (uploaderSnap.exists()) {
-        const uploaderData = uploaderSnap.data();
-        const newEarnings = (uploaderData.earnings || 0) + 5;
-
-        await updateDoc(uploaderRef, {
-          earnings: newEarnings,
-          updatedAt: new Date()
-        });
-      }
+      await updateDoc(uploaderRef, {
+        earnings: increment(5),
+        updatedAt: new Date()
+      });
     }
-
-    // 5. Update note status
-    await updateDoc(noteRef, {
-      status: "approved",
-      approvedAt: new Date(),
-      updatedAt: new Date()
-    });
 
     return { error: null };
   } catch (error) {
     console.error("Error approving note for user:", error);
+    return { error: error.message };
+  }
+};
+
+// Deny a note for a specific user
+export const denyNoteForUser = async (userId, noteId, reason = "") => {
+  try {
+    const userRef = doc(db, "users", userId);
+    
+    // Remove note from pending notes
+    await updateDoc(userRef, {
+      pendingNotes: arrayRemove(noteId),
+      updatedAt: new Date()
+    });
+    
+    return { error: null };
+  } catch (error) {
+    console.error("Error denying note for user:", error);
     return { error: error.message };
   }
 };

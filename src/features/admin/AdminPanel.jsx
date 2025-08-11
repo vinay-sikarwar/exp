@@ -4,10 +4,11 @@ import {
   approveNote,
   denyNote,
   updateNote,
-  getAllAccessRequests,
-  approveAccessRequest,
-  denyAccessRequest,
+  getUsersWithPendingNotes,
+  approveNoteForUser,
+  denyNoteForUser,
 } from "../../services/adminService";
+import { getApprovedNotesDetails } from "../../services/notesService";
 import Navbar from "../../Components/Navbar"; // Assuming Navbar component
 
 function AdminPanel() {
@@ -29,9 +30,10 @@ function AdminPanel() {
   // New state for inline drive link editing
   const [driveLinkEdits, setDriveLinkEdits] = useState({});
 
-  const [accessRequests, setAccessRequests] = useState([]);
-  const [accessLoading, setAccessLoading] = useState(true);
-  const [accessActionLoading, setAccessActionLoading] = useState(null);
+  const [pendingUsers, setPendingUsers] = useState([]);
+  const [pendingUsersLoading, setPendingUsersLoading] = useState(true);
+  const [pendingActionLoading, setPendingActionLoading] = useState(null);
+  const [pendingNotesDetails, setPendingNotesDetails] = useState({});
 
   const fetchNotes = async () => {
     setNotesLoading(true);
@@ -41,18 +43,32 @@ function AdminPanel() {
     setDriveLinkEdits({});
   };
 
-  const fetchAccessRequests = async () => {
-    setAccessLoading(true);
-    const { requests: allRequests } = await getAllAccessRequests();
-    setAccessRequests(allRequests || []);
-    setAccessLoading(false);
+  const fetchPendingUsers = async () => {
+    setPendingUsersLoading(true);
+    const { users } = await getUsersWithPendingNotes();
+    setPendingUsers(users || []);
+    
+    // Fetch details for all pending notes
+    const allPendingNoteIds = users.flatMap(user => user.pendingNotes || []);
+    const uniqueNoteIds = [...new Set(allPendingNoteIds)];
+    
+    if (uniqueNoteIds.length > 0) {
+      const { notes } = await getApprovedNotesDetails(uniqueNoteIds);
+      const notesMap = {};
+      notes.forEach(note => {
+        notesMap[note.id] = note;
+      });
+      setPendingNotesDetails(notesMap);
+    }
+    
+    setPendingUsersLoading(false);
   };
 
   useEffect(() => {
     if (view === "notes") {
       fetchNotes();
     } else {
-      fetchAccessRequests();
+      fetchPendingUsers();
     }
   }, [view]);
 
@@ -118,23 +134,24 @@ function AdminPanel() {
   
 
   // Access handlers
-  const handleApproveAccess = async (requestId) => {
-    setAccessActionLoading(requestId);
-    const { error } = await approveAccessRequest(requestId);
+  const handleApproveUserNote = async (userId, noteId) => {
+    const actionKey = `${userId}-${noteId}`;
+    setPendingActionLoading(actionKey);
+    const { error } = await approveNoteForUser(userId, noteId);
     if (!error) {
-      await fetchAccessRequests();
+      await fetchPendingUsers();
     }
-    setAccessActionLoading(null);
+    setPendingActionLoading(null);
   };
 
-  // Removed prompt for denial reason here as requested
-  const handleDenyAccess = async (requestId) => {
-    setAccessActionLoading(requestId);
-    const { error } = await denyAccessRequest(requestId);
+  const handleDenyUserNote = async (userId, noteId) => {
+    const actionKey = `${userId}-${noteId}`;
+    setPendingActionLoading(actionKey);
+    const { error } = await denyNoteForUser(userId, noteId);
     if (!error) {
-      await fetchAccessRequests();
+      await fetchPendingUsers();
     }
-    setAccessActionLoading(null);
+    setPendingActionLoading(null);
   };
 
   const getStatusBadge = (status) => {
@@ -165,7 +182,7 @@ function AdminPanel() {
             aria-label="Select admin panel view"
           >
             <option value="notes">Notes Upload Requests</option>
-            <option value="access">Notes Access Requests</option>
+            <option value="access">User Purchase Approvals</option>
           </select>
         </div>
 
@@ -302,84 +319,74 @@ function AdminPanel() {
           </section>
         )}
 
-        {/* Notes Access Requests */}
+        {/* User Purchase Approvals */}
         {view === "access" && (
           <section className="bg-white rounded shadow p-6">
             <h2 className="text-3xl font-bold mb-6 text-[#0A1F44]">
-              Notes Access Requests
+              User Purchase Approvals
             </h2>
 
-            {accessLoading ? (
+            {pendingUsersLoading ? (
               <p className="text-center text-gray-600">
-                Loading access requests...
+                Loading pending approvals...
               </p>
-            ) : accessRequests.length === 0 ? (
+            ) : pendingUsers.length === 0 ? (
               <p className="text-center text-gray-600">
-                No access requests at the moment.
+                No pending approvals at the moment.
               </p>
             ) : (
               <table className={tableClassName}>
                 <thead>
                   <tr>
                     <th className={thClassName}>User Email</th>
-                    <th className={thClassName}>Requested Notes</th>
-                    <th className={thClassName}>Requested At</th>
-                    <th className={thClassName}>Payment ID</th>
-                    <th className={thClassName}>Status</th>
+                    <th className={thClassName}>Display Name</th>
+                    <th className={thClassName}>Pending Notes</th>
                     <th className={thClassName}>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {accessRequests.map((req) => (
-                    <tr key={req.id} className="hover:bg-[#e1e7f0] transition">
-                      <td className={tdClassName}>{req.userEmail}</td>
+                  {pendingUsers.map((user) => (
+                    <tr key={user.id} className="hover:bg-[#e1e7f0] transition">
+                      <td className={tdClassName}>{user.email}</td>
+                      <td className={tdClassName}>{user.displayName}</td>
                       <td className={tdClassName}>
-                        <ul className="list-disc list-inside">
-                          {req.requestedNotes.map((item) => (
-                            <li key={item.title}>
-                              {item.title} (x{item.quantity || 1})
-                            </li>
-                          ))}
-                        </ul>
-                      </td>
-                      <td className={tdClassName}>
-                        {new Date(
-                          req.createdAt?.toDate
-                            ? req.createdAt.toDate()
-                            : req.createdAt
-                        ).toLocaleString()}
-                      </td>
-                      <td className={tdClassName}>{req.paymentId || "-"}</td>
-                      <td className={tdClassName}>
-                        <span className={getStatusBadge(req.status)}>
-                          {req.status}
-                        </span>
+                        <div className="space-y-2">
+                          {user.pendingNotes.map((noteId) => {
+                            const note = pendingNotesDetails[noteId];
+                            const actionKey = `${user.id}-${noteId}`;
+                            return (
+                              <div key={noteId} className="border rounded p-2 bg-gray-50">
+                                <p className="font-medium text-sm">
+                                  {note?.title || `Note ID: ${noteId}`}
+                                </p>
+                                <p className="text-xs text-gray-600">
+                                  {note?.subject} - {note?.branch}
+                                </p>
+                                <div className="flex gap-2 mt-2">
+                                  <button
+                                    onClick={() => handleApproveUserNote(user.id, noteId)}
+                                    disabled={pendingActionLoading === actionKey}
+                                    className="text-xs px-2 py-1 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50"
+                                  >
+                                    {pendingActionLoading === actionKey ? "..." : "Approve"}
+                                  </button>
+                                  <button
+                                    onClick={() => handleDenyUserNote(user.id, noteId)}
+                                    disabled={pendingActionLoading === actionKey}
+                                    className="text-xs px-2 py-1 bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50"
+                                  >
+                                    {pendingActionLoading === actionKey ? "..." : "Deny"}
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
                       </td>
                       <td className={`${tdClassName} space-x-3`}>
-                        {req.status === "pending" ? (
-                          <>
-                            <button
-                              onClick={() => handleApproveAccess(req.id)}
-                              disabled={accessActionLoading === req.id}
-                              className="text-green-700 hover:underline disabled:opacity-50"
-                            >
-                              {accessActionLoading === req.id
-                                ? "Processing..."
-                                : "Approve"}
-                            </button>
-                            <button
-                              onClick={() => handleDenyAccess(req.id)}
-                              disabled={accessActionLoading === req.id}
-                              className="text-red-700 hover:underline disabled:opacity-50"
-                            >
-                              Deny
-                            </button>
-                          </>
-                        ) : (
-                          <span className="italic text-gray-600">
-                            {req.status}
-                          </span>
-                        )}
+                        <span className="text-sm text-gray-600">
+                          {user.pendingNotes.length} pending note(s)
+                        </span>
                       </td>
                     </tr>
                   ))}
